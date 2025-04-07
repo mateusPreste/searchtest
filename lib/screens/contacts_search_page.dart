@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import '../providers/todo_provider.dart';
+import 'package:todo_app/models/contact.dart';
+
+import '../provider/contact_provider.dart';
+import '../viewmodels/contacts_viewmodel.dart';
 
 // Define the filter options as a constant outside the class
 const List<String> filterOptions = ['All', 'Family', 'Friends', 'Work'];
@@ -15,16 +18,9 @@ class ContactsSearchPage extends HookConsumerWidget {
     final searchController = useTextEditingController();
 
     // Watch the filtered list of contacts
-    final contacts = ref.watch(contactsProvider);
+    final contactsAsync = ref.watch(contactsNotifierProvider);
     // Read the viewmodel for updating search query and filter
-    final contactsVM = ref.read(contactsProvider.notifier);
-
-    // Key for the SliverAnimatedList
-    final animatedListKey =
-        useMemoized(() => GlobalKey<SliverAnimatedListState>());
-
-    // Track previous contacts for diffing
-    final previousContacts = useRef<List>(contacts);
+    final contactsVM = ref.read(contactsNotifierProvider.notifier);
 
     // Use effect to handle search query changes
     useEffect(() {
@@ -34,43 +30,6 @@ class ContactsSearchPage extends HookConsumerWidget {
 
       return () => searchController.dispose();
     }, [searchController]);
-
-    // useEffect to sync animated list with contacts changes
-    useEffect(() {
-      final listState = animatedListKey.currentState;
-      if (listState != null) {
-        final prevLength = previousContacts.value.length;
-        final currLength = contacts.length;
-        if (currLength > prevLength) {
-          // Insert new item(s)
-          for (var i = prevLength; i < currLength; i++) {
-            listState.insertItem(i);
-          }
-        } else if (currLength < prevLength) {
-          // Remove extra item(s)
-          for (var i = prevLength - 1; i >= currLength; i--) {
-            final removedItem = previousContacts.value[i];
-            listState.removeItem(
-              i,
-              (context, animation) => SizeTransition(
-                sizeFactor: animation,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    child: Text(removedItem.name.substring(0, 1)),
-                  ),
-                  title: Text(removedItem.name),
-                  subtitle:
-                      Text('${removedItem.phone} • ${removedItem.category}'),
-                ),
-              ),
-            );
-          }
-        }
-      }
-      // Update the previous contacts ref.
-      previousContacts.value = contacts;
-      return null;
-    }, [contacts]);
 
     return Scaffold(
       appBar: AppBar(
@@ -113,31 +72,34 @@ class ContactsSearchPage extends HookConsumerWidget {
           const Divider(),
           // List of Contacts
           Expanded(
-            child: CustomScrollView(
-              slivers: [
-                contacts.isEmpty
-                    ? const SliverFillRemaining(
-                        child: Center(child: Text('No contacts found')),
-                      )
-                    : SliverAnimatedList(
-                        key: animatedListKey,
-                        initialItemCount: contacts.length,
-                        itemBuilder: (context, index, animation) {
+            child: contactsAsync.when(
+              data: (contacts) {
+                if (contacts.isEmpty) {
+                  return const Center(child: Text('No contacts found'));
+                }
+                return CustomScrollView(
+                  slivers: [
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
                           final contact = contacts[index];
-                          return SizeTransition(
-                            sizeFactor: animation,
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                child: Text(contact.name.substring(0, 1)),
-                              ),
-                              title: Text(contact.name),
-                              subtitle: Text(
-                                  '${contact.phone} • ${contact.category}'),
+                          return ListTile(
+                            leading: CircleAvatar(
+                              child: Text(contact.name.substring(0, 1)),
                             ),
+                            title: Text(contact.name),
+                            subtitle:
+                                Text('${contact.phone} • ${contact.category}'),
                           );
                         },
+                        childCount: contacts.length,
                       ),
-              ],
+                    ),
+                  ],
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, stack) => Center(child: Text('Error: $error')),
             ),
           ),
         ],
